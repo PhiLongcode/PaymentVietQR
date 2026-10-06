@@ -8,6 +8,8 @@ const orderRoutes = require("./routes/orders");
 const paymentRoutes = require("./routes/payments");
 const webhookRoutes = require("./routes/webhooks");
 const devRoutes = require("./routes/dev");
+const swaggerUi = require("swagger-ui-express");
+const { spec } = require("./swagger");
 const matchingService = require("./services/matchingService");
 
 const app = express();
@@ -21,6 +23,13 @@ app.use(express.json({ limit: "1mb" }));
 app.get("/health", (req, res) => {
   res.json({ ok: true, env: config.nodeEnv });
 });
+
+app.get("/", (req, res) => {
+  res.redirect("/api/docs");
+});
+
+app.use("/api/docs", swaggerUi.serve);
+app.get("/api/docs", swaggerUi.setup(spec, { explorer: true }));
 
 app.use("/api/v1/cas", casRoutes);
 app.use("/api/v1/orders", orderRoutes);

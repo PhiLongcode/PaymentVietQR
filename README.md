@@ -34,6 +34,7 @@ cd frontend && npm install && npm run dev
 - App: http://localhost:3000 (nếu cổng 3000 bận, `npx next dev --port 3001`)  
 - API: http://localhost:4000  
 - Health: http://localhost:4000/health  
+- Swagger: http://localhost:4000/api/docs (Render: https://paymentvietqr.onrender.com/api/docs) 
 
 `CAS_REDIRECT_URI` phải **trùng khớp tuyệt đối** một URL đã được phép trên Cas Console (Grant → Redirect URI). Cas sandbox từ chối URI lạ với `INVALID_PARAM` (`... not allowed`).
 

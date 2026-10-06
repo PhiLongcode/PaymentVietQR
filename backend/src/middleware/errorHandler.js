@@ -3,6 +3,14 @@ function asyncHandler(fn) {
 }
 
 function errorHandler(err, req, res, next) {
+  const isWebhook = req.path && req.path.includes("/webhooks/cas");
+  if (
+    isWebhook &&
+    (err instanceof SyntaxError || err.type === "entity.parse.failed")
+  ) {
+    return res.status(200).json({ ok: true, ping: true });
+  }
+
   const status = err.status || 500;
   const code = err.code || "INTERNAL_ERROR";
   if (status >= 500) {

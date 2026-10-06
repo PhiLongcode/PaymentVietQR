@@ -4,6 +4,13 @@ const matchingService = require("../services/matchingService");
 
 const router = express.Router();
 
+function ack(_req, res) {
+  res.status(200).json({ ok: true, ping: true });
+}
+
+router.get("/cas/transactions", ack);
+router.head("/cas/transactions", (req, res) => res.status(200).end());
+
 router.post(
   "/cas/transactions",
   asyncHandler(async (req, res) => {

@@ -179,11 +179,12 @@ function processTransactionWebhook(payload) {
   const environment = payload?.environment;
   const transaction = payload?.transaction || payload?.data?.transaction;
 
-  if (!webhookType) {
-    const err = new Error("webhookType is required");
-    err.status = 400;
-    err.code = "INVALID_WEBHOOK";
-    throw err;
+  if (!webhookType || !transaction || !transaction.id) {
+    logger.info("webhook.ping", {
+      hasType: Boolean(webhookType),
+      hasTransaction: Boolean(transaction?.id),
+    });
+    return { ok: true, ping: true };
   }
   const type = String(webhookType || "").toUpperCase();
   if (!["TRANSACTIONS", "TRANSACTION", "QRPAY", "QR_PAY"].includes(type)) {
@@ -194,12 +195,6 @@ function processTransactionWebhook(payload) {
       status: "IGNORED",
     });
     return { ok: true, ignored: true, reason: "unsupported_webhookType" };
-  }
-  if (!transaction || !transaction.id) {
-    const err = new Error("transaction payload is required");
-    err.status = 400;
-    err.code = "INVALID_WEBHOOK";
-    throw err;
   }
   if (environment && environment !== expectedEnvironment()) {
     logger.warn("webhook.environment_mismatch", {
