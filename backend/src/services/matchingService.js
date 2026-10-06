@@ -57,6 +57,29 @@ async function listUnmatched() {
   });
 }
 
+const ORDER_CODE_RE = /\bDH\d{7}\b/gi;
+
+function extractOrderCodes(...texts) {
+  const found = [];
+  for (const text of texts) {
+    if (!text) continue;
+    const hits = String(text).match(ORDER_CODE_RE) || [];
+    for (const hit of hits) found.push(hit.toUpperCase());
+  }
+  return [...new Set(found)];
+}
+
+function pickPaymentFromRows(rows, strategy) {
+  const usable = rows.filter((p) => p.status === "PENDING" || p.status === "SUCCESS");
+  const pending = usable.filter((p) => p.status === "PENDING");
+  if (pending.length === 1) return { payment: pending[0], strategy };
+  if (pending.length > 1) {
+    return { payment: null, strategy: `ambiguous_${strategy}`, ambiguous: true };
+  }
+  if (usable.length === 1) return { payment: usable[0], strategy };
+  return null;
+}
+
 async function matchPayment(transaction, paymentMeta) {
   const meta = paymentMeta || {};
   const qrPayId = meta.qrPayId || meta.qrPayID || meta.id;
@@ -68,9 +91,24 @@ async function matchPayment(transaction, paymentMeta) {
   }
   if (ref) {
     const byRef = await paymentService.findByOrderOrReference(ref);
-    const pending = byRef.filter((p) => p.status === "PENDING" || p.status === "SUCCESS");
-    const pick = pending.find((p) => p.status === "PENDING") || pending[0] || byRef[0];
-    if (pick) return { payment: pick, strategy: "paymentMeta.referenceNumber" };
+    const picked = pickPaymentFromRows(byRef, "paymentMeta.referenceNumber");
+    if (picked) return picked;
+  }
+
+  const codes = extractOrderCodes(
+    transaction.description,
+    ref,
+    transaction.reference,
+    transaction.virtualAccountNumber
+  );
+  if (codes.length) {
+    const rows = [];
+    for (const code of codes) {
+      rows.push(...(await paymentService.findByOrderOrReference(code)));
+    }
+    const byId = new Map(rows.map((p) => [p.id, p]));
+    const picked = pickPaymentFromRows([...byId.values()], "order_code_in_description");
+    if (picked) return picked;
   }
 
   const vaHits = await paymentService.findPendingByVirtualAccount(transaction.accountNumber);
@@ -268,6 +306,7 @@ async function processTransactionWebhook(payload) {
       transactionId: transaction.id,
       amount: transaction.amount,
       referenceNumber: transaction.paymentMeta?.referenceNumber,
+      orderCodes: extractOrderCodes(transaction.description, transaction.reference),
       reason,
     });
     return { ok: true, unmatched: true, reason };
@@ -389,4 +428,5 @@ module.exports = {
   paymentEvents,
   listUnmatched,
   validateAmount,
+  extractOrderCodes,
 };

@@ -39,6 +39,24 @@ const spec = {
         responses: { 200: { description: "grantToken, linkUrl" } },
       },
     },
+    "/cas/callback": {
+      get: {
+        tags: ["Cas Grant"],
+        summary:
+          "Cas redirect production (HTTPS). Đổi publicToken rồi về FE. Local thì http://localhost:3000/cas/callback",
+        parameters: [
+          {
+            name: "publicToken",
+            in: "query",
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          302: { description: "Redirect về FRONTEND_URL" },
+          200: { description: "HTML thành công nếu FE vẫn là localhost" },
+        },
+      },
+    },
     "/api/v1/cas/exchange": {
       post: {
         tags: ["Cas Grant"],

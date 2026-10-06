@@ -39,6 +39,7 @@ app.use("/api/docs", swaggerUi.serve);
 app.get("/api/docs", swaggerUi.setup(spec, { explorer: true }));
 
 app.use("/api/v1/cas", casRoutes);
+app.get("/cas/callback", asyncHandler(casRoutes.handleCasBrowserCallback));
 app.use("/api/v1/orders", orderRoutes);
 app.use("/api/v1/payments", paymentRoutes);
 app.use("/api/v1/webhooks", webhookRoutes);
@@ -60,6 +61,7 @@ connectDb()
         port: config.port,
         env: config.nodeEnv,
         casBaseUrl: config.cas.baseUrl,
+        casRedirectUri: config.casRedirectUri,
       });
     });
   })

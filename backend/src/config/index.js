@@ -24,13 +24,39 @@ const envDefaults = {
 
 const defaults = envDefaults[NODE_ENV] || envDefaults.DEV;
 
+function isLoopbackUrl(url) {
+  if (!url) return false;
+  try {
+    const host = new URL(url).hostname;
+    return host === "localhost" || host === "127.0.0.1";
+  } catch {
+    return /localhost|127\.0\.0\.1/i.test(url);
+  }
+}
+
+function publicApiBase() {
+  const raw = process.env.PUBLIC_API_URL || process.env.RENDER_EXTERNAL_URL || "";
+  return raw.replace(/\/$/, "");
+}
+
+function resolveCasRedirectUri(frontendUrl) {
+  const explicit = (process.env.CAS_REDIRECT_URI || "").trim();
+  const apiBase = publicApiBase();
+  if (apiBase && (!explicit || isLoopbackUrl(explicit))) {
+    return `${apiBase}/cas/callback`;
+  }
+  if (explicit) return explicit;
+  return `${String(frontendUrl).replace(/\/$/, "")}/cas/callback`;
+}
+
+const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+
 const config = {
   port: Number(process.env.PORT || 4000),
   nodeEnv: NODE_ENV,
   isDev: NODE_ENV === "DEV",
-  frontendUrl: process.env.FRONTEND_URL || "http://localhost:3000",
-  casRedirectUri:
-    process.env.CAS_REDIRECT_URI || "http://localhost:3000/cas/callback",
+  frontendUrl,
+  casRedirectUri: resolveCasRedirectUri(frontendUrl),
   mongoUri: process.env.MONGODB_URI || "",
   cas: {
     baseUrl: process.env.CAS_BASE_URL || defaults.CAS_BASE_URL,
@@ -51,4 +77,4 @@ function assertCasCredentials() {
   }
 }
 
-module.exports = { config, assertCasCredentials };
+module.exports = { config, assertCasCredentials, isLoopbackUrl };

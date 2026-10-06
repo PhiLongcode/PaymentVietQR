@@ -36,9 +36,12 @@ cd frontend && npm install && npm run dev
 - Health: http://localhost:4000/health  
 - Swagger: http://localhost:4000/api/docs (Render: https://paymentvietqr.onrender.com/api/docs) 
 
-`CAS_REDIRECT_URI` phải **trùng khớp tuyệt đối** một URL đã được phép trên Cas Console (Grant → Redirect URI). Cas sandbox từ chối URI lạ với `INVALID_PARAM` (`... not allowed`).
+`CAS_REDIRECT_URI` phải **trùng khớp tuyệt đối** một URL trên Cas Console (Grant → Redirect URI).
 
-Thêm đúng `http://localhost:3000/cas/callback` vào allowlist Console, hoặc đổi `CAS_REDIRECT_URI` thành URL bạn đã đăng ký (và FE phải nhận `publicToken` tại URL đó).
+- Local: `http://localhost:3000/cas/callback` (FE Next đổi `publicToken`).
+- Production (Render): backend **bỏ localhost**. Dùng `https://paymentvietqr.onrender.com/cas/callback`. Trên Render, nếu `CAS_REDIRECT_URI` vẫn là localhost thì code tự chuyển sang URL host (`RENDER_EXTERNAL_URL` / `PUBLIC_API_URL`).
+
+Thêm **cả hai** URI vào Cas Console. `publicToken` trên URL chỉ dùng một lần — không chia sẻ.
 
 ## Webhook CAS
 

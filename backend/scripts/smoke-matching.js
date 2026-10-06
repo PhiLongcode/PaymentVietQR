@@ -82,6 +82,16 @@ function hook(overrides) {
     accountNumber: "VA-SMOKE-2",
   });
 
+  const wrappedOrder = await orderService.createOrder(2000);
+  await seedPayment(wrappedOrder, { va: "VA-MOMO" });
+  const wrapped = await hook({
+    txnId: `SMOKE-WRAP-${Date.now()}`,
+    amount: 2000,
+    accountNumber: "0349134490",
+    paymentMeta: {},
+    description: `Qamomf3244  CASSO12397 4 xxx 150359607111-${wrappedOrder.id}-CHUYEN TIEN-MOMO`,
+  });
+
   const unknown = await hook({
     txnId: `SMOKE-UNK-${Date.now()}`,
     amount: 2000,
@@ -96,6 +106,7 @@ function hook(overrides) {
         paid: paid.status,
         duplicate: dup.duplicate,
         casReference: casStyle.status,
+        wrappedMomo: wrapped.status,
         underpaid: under.result,
         unknown: unknown.unmatched,
       },
@@ -108,6 +119,7 @@ function hook(overrides) {
     paid.status === "SUCCESS" &&
     dup.duplicate === true &&
     casStyle.status === "SUCCESS" &&
+    wrapped.status === "SUCCESS" &&
     under.result === "REJECT" &&
     unknown.unmatched === true;
 
