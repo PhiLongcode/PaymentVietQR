@@ -15,7 +15,8 @@ const matchingService = require("./services/matchingService");
 const app = express();
 app.use(
   cors({
-    origin: [config.frontendUrl, "http://localhost:3000", "http://localhost:3001"],
+    origin: true,
+    credentials: false,
   })
 );
 app.use(express.json({ limit: "1mb" }));

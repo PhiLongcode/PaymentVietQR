@@ -1,5 +1,3 @@
-const { config } = require("./config");
-
 const spec = {
   openapi: "3.0.3",
   info: {
@@ -8,13 +6,7 @@ const spec = {
     description:
       "Internal APIs for Cas QR Pay: grant, orders, QR, webhook, unmatched.",
   },
-  servers: [
-    { url: "http://localhost:" + config.port, description: "Local" },
-    {
-      url: "https://paymentvietqr.onrender.com",
-      description: "Render",
-    },
-  ],
+  servers: [{ url: "/", description: "Same host as Swagger UI" }],
   tags: [
     { name: "Health" },
     { name: "Cas Grant" },
