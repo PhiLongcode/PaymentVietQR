@@ -24,10 +24,10 @@ router.post(
 router.get(
   "/status",
   asyncHandler(async (req, res) => {
-    const row = grantService.getActiveGrant() || grantService.getLatestGrant();
+    const row = (await grantService.getActiveGrant()) || (await grantService.getLatestGrant());
     res.json({
       grant: grantService.publicGrant(row),
-      hasActiveGrant: Boolean(grantService.getActiveGrant()),
+      hasActiveGrant: Boolean(await grantService.getActiveGrant()),
     });
   })
 );

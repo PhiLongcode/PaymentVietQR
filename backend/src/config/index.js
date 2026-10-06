@@ -31,7 +31,7 @@ const config = {
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:3000",
   casRedirectUri:
     process.env.CAS_REDIRECT_URI || "http://localhost:3000/cas/callback",
-  dbPath: process.env.DB_PATH || path.join(__dirname, "../../data/app.db"),
+  mongoUri: process.env.MONGODB_URI || "",
   cas: {
     baseUrl: process.env.CAS_BASE_URL || defaults.CAS_BASE_URL,
     linkUrl: process.env.CAS_LINK_URL || defaults.CAS_LINK_URL,

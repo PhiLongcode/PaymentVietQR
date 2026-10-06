@@ -1,17 +1,16 @@
-const { db, nowIso } = require("../db");
+const { nowIso } = require("../db");
+const { CasGrant, plain } = require("../db/models");
 const logger = require("../logger");
 const cas = require("./casClient");
 
-function getActiveGrant() {
-  return db
-    .prepare(
-      `SELECT * FROM cas_grants WHERE status = 'ACTIVE' ORDER BY id DESC LIMIT 1`
-    )
-    .get();
+async function getActiveGrant() {
+  const row = await CasGrant.findOne({ status: "ACTIVE" }).sort({ _id: -1 });
+  return plain(row);
 }
 
-function getLatestGrant() {
-  return db.prepare(`SELECT * FROM cas_grants ORDER BY id DESC LIMIT 1`).get();
+async function getLatestGrant() {
+  const row = await CasGrant.findOne({}).sort({ _id: -1 });
+  return plain(row);
 }
 
 function publicGrant(row) {
@@ -33,11 +32,12 @@ function publicGrant(row) {
   };
 }
 
-function markGrantInvalid(grantId, reason) {
+async function markGrantInvalid(grantId, reason) {
   const ts = nowIso();
-  db.prepare(
-    `UPDATE cas_grants SET status = 'INVALID', updated_at = ? WHERE grant_id = ?`
-  ).run(ts, grantId);
+  await CasGrant.updateOne(
+    { grant_id: grantId },
+    { $set: { status: "INVALID", updated_at: ts } }
+  );
   logger.warn("grant.invalidated", { grantId, reason });
 }
 
@@ -119,25 +119,21 @@ async function completeExchange(publicToken) {
   }
 
   const ts = nowIso();
-  db.prepare(`UPDATE cas_grants SET status = 'INVALID', updated_at = ? WHERE status = 'ACTIVE'`).run(
-    ts
+  await CasGrant.updateMany(
+    { status: "ACTIVE" },
+    { $set: { status: "INVALID", updated_at: ts } }
   );
-
-  db.prepare(
-    `INSERT INTO cas_grants (
-      grant_id, access_token, status, identity_json,
-      account_name, account_number, fi_name, created_at, updated_at
-    ) VALUES (?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?)`
-  ).run(
-    grantId,
-    accessToken,
-    JSON.stringify(identityData),
-    parsed.accountName,
-    parsed.accountNumber,
-    parsed.fiName,
-    ts,
-    ts
-  );
+  await CasGrant.create({
+    grant_id: grantId,
+    access_token: accessToken,
+    status: "ACTIVE",
+    identity_json: JSON.stringify(identityData),
+    account_name: parsed.accountName,
+    account_number: parsed.accountNumber,
+    fi_name: parsed.fiName,
+    created_at: ts,
+    updated_at: ts,
+  });
 
   logger.info("grant.activated", {
     grantId,
@@ -145,11 +141,11 @@ async function completeExchange(publicToken) {
     fiName: parsed.fiName,
   });
 
-  return publicGrant(getActiveGrant());
+  return publicGrant(await getActiveGrant());
 }
 
 async function withAccessToken(fn) {
-  const grant = getActiveGrant();
+  const grant = await getActiveGrant();
   if (!grant) {
     const err = new Error("No active Cas grant. Link a receiving account first.");
     err.status = 409;
@@ -160,7 +156,7 @@ async function withAccessToken(fn) {
     return await fn(grant.access_token, grant);
   } catch (err) {
     if (err.code === "CAS_UNAUTHORIZED" || err.status === 401) {
-      markGrantInvalid(grant.grant_id, "401");
+      await markGrantInvalid(grant.grant_id, "401");
       const reauth = new Error("Cas token expired. Please re-link the account.");
       reauth.status = 401;
       reauth.code = "CAS_REAUTH_REQUIRED";

@@ -1,5 +1,6 @@
 const { EventEmitter } = require("events");
-const { db, nowIso } = require("../db");
+const { nowIso } = require("../db");
+const { Payment, WebhookEvent, UnmatchedTransaction, plain } = require("../db/models");
 const logger = require("../logger");
 const { config } = require("../config");
 const orderService = require("./orderService");
@@ -18,69 +19,61 @@ function expectedEnvironment() {
   return config.cas.environment;
 }
 
-function insertWebhookEvent({ transactionId, webhookType, environment, payload, status }) {
-  db.prepare(
-    `INSERT INTO webhook_events (
-      transaction_id, webhook_type, environment, payload_json, processing_status, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(
-    transactionId || null,
-    webhookType || null,
-    environment || null,
-    JSON.stringify(payload),
-    status,
-    nowIso()
-  );
+async function insertWebhookEvent({
+  transactionId,
+  webhookType,
+  environment,
+  payload,
+  status,
+}) {
+  await WebhookEvent.create({
+    transaction_id: transactionId || null,
+    webhook_type: webhookType || null,
+    environment: environment || null,
+    payload_json: JSON.stringify(payload),
+    processing_status: status,
+    created_at: nowIso(),
+  });
 }
 
-function insertUnmatched({ transaction, reason, payload }) {
-  db.prepare(
-    `INSERT INTO unmatched_transactions (
-      transaction_id, amount, account_number, description, reference, reason, payload_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    transaction?.id || null,
-    transaction?.amount ?? null,
-    transaction?.accountNumber || null,
-    transaction?.description || null,
-    transaction?.reference || null,
+async function insertUnmatched({ transaction, reason, payload }) {
+  await UnmatchedTransaction.create({
+    transaction_id: transaction?.id || null,
+    amount: transaction?.amount ?? null,
+    account_number: transaction?.accountNumber || null,
+    description: transaction?.description || null,
+    reference: transaction?.reference || payload?.transaction?.paymentMeta?.referenceNumber || null,
     reason,
-    JSON.stringify(payload),
-    nowIso()
-  );
+    payload_json: JSON.stringify(payload),
+    created_at: nowIso(),
+  });
 }
 
-function listUnmatched() {
-  return db
-    .prepare(
-      `SELECT id, transaction_id, amount, account_number, description, reference, reason, created_at
-       FROM unmatched_transactions ORDER BY id DESC LIMIT 100`
-    )
-    .all();
+async function listUnmatched() {
+  const rows = await UnmatchedTransaction.find({}).sort({ _id: -1 }).limit(100);
+  return rows.map((r) => {
+    const o = plain(r);
+    return { ...o, id: o.mongo_id };
+  });
 }
 
-function matchPayment(transaction, paymentMeta) {
+async function matchPayment(transaction, paymentMeta) {
   const meta = paymentMeta || {};
   const qrPayId = meta.qrPayId || meta.qrPayID || meta.id;
   const ref = meta.referenceNumber || meta.reference;
 
   if (qrPayId) {
-    const byId = paymentService.getPaymentByProviderId(qrPayId);
+    const byId = await paymentService.getPaymentByProviderId(qrPayId);
     if (byId) return { payment: byId, strategy: "paymentMeta.qrPayId" };
   }
   if (ref) {
-    const byRef = db
-      .prepare(
-        `SELECT * FROM payments WHERE reference_number = ? AND status = 'PENDING'`
-      )
-      .all(ref);
-    if (byRef.length === 1) {
-      return { payment: byRef[0], strategy: "paymentMeta.referenceNumber" };
-    }
-    if (byRef.length > 1) return { payment: null, strategy: "ambiguous_reference", ambiguous: true };
+    const byRef = await paymentService.findByOrderOrReference(ref);
+    const pending = byRef.filter((p) => p.status === "PENDING" || p.status === "SUCCESS");
+    const pick = pending.find((p) => p.status === "PENDING") || pending[0] || byRef[0];
+    if (pick) return { payment: pick, strategy: "paymentMeta.referenceNumber" };
   }
 
-  const vaHits = paymentService.findPendingByVirtualAccount(transaction.accountNumber);
+  const vaHits = await paymentService.findPendingByVirtualAccount(transaction.accountNumber);
   if (vaHits.length === 1) {
     return { payment: vaHits[0], strategy: "virtualAccountNumber" };
   }
@@ -88,7 +81,7 @@ function matchPayment(transaction, paymentMeta) {
     return { payment: null, strategy: "ambiguous_virtual_account", ambiguous: true };
   }
 
-  const descHits = paymentService.findPendingByDescription(transaction.description || "");
+  const descHits = await paymentService.findPendingByDescription(transaction.description || "");
   if (descHits.length === 1) {
     return { payment: descHits[0], strategy: "description" };
   }
@@ -96,7 +89,7 @@ function matchPayment(transaction, paymentMeta) {
     return { payment: null, strategy: "ambiguous_description", ambiguous: true };
   }
 
-  const vaInDesc = paymentService.findPendingByVirtualAccountInText(
+  const vaInDesc = await paymentService.findPendingByVirtualAccountInText(
     `${transaction.description || ""} ${transaction.virtualAccountNumber || ""}`
   );
   if (vaInDesc.length === 1) {
@@ -106,8 +99,12 @@ function matchPayment(transaction, paymentMeta) {
   return { payment: null, strategy: "none" };
 }
 
-function validateAmount(expected, received) {
-  if (received == null || Number.isNaN(Number(received)) || Number(received) <= 0) {
+function validateAmount(expected, received, { casConfirmedRef } = {}) {
+  if (received == null || Number.isNaN(Number(received))) {
+    if (casConfirmedRef) return { result: "OK", reason: "cas_reference_no_amount" };
+    return { result: "REJECT", reason: "amount_null_or_zero" };
+  }
+  if (Number(received) <= 0) {
     return { result: "REJECT", reason: "amount_null_or_zero" };
   }
   const got = Number(received);
@@ -116,31 +113,28 @@ function validateAmount(expected, received) {
   return { result: "REVIEW", reason: "amount_overpaid" };
 }
 
-function applyPaid(payment, transaction) {
+async function applyPaid(payment, transaction) {
   const ts = nowIso();
-  db.prepare(
-    `UPDATE payments
-     SET status = 'SUCCESS',
-         transaction_id = ?,
-         transaction_reference = ?,
-         paid_at = ?,
-         updated_at = ?
-     WHERE id = ?`
-  ).run(
-    transaction.id,
-    transaction.reference || null,
-    transaction.transactionDateTime || ts,
-    ts,
-    payment.id
+  await Payment.updateOne(
+    { id: payment.id },
+    {
+      $set: {
+        status: "SUCCESS",
+        transaction_id: transaction.id,
+        transaction_reference: transaction.reference || null,
+        paid_at: transaction.transactionDateTime || ts,
+        updated_at: ts,
+      },
+    }
   );
-  orderService.setOrderStatus(payment.order_id, "PAID");
+  await orderService.setOrderStatus(payment.order_id, "PAID");
   notifyPayment(payment.order_id);
-  paymentService.audit({
+  await paymentService.audit({
     paymentId: payment.id,
     orderId: payment.order_id,
     providerPaymentId: payment.provider_payment_id,
     transactionId: transaction.id,
-    amount: transaction.amount,
+    amount: transaction.amount ?? payment.amount,
     fromStatus: payment.status,
     toStatus: "SUCCESS",
     reason: "webhook_paid",
@@ -151,18 +145,26 @@ function applyPaid(payment, transaction) {
     provider: "CAS",
     providerPaymentId: payment.provider_payment_id,
     transactionId: transaction.id,
-    amount: transaction.amount,
+    amount: transaction.amount ?? payment.amount,
     status: "SUCCESS",
     paidAt: ts,
   });
 }
 
-function applyFailed(payment, transaction, reason) {
+async function applyFailed(payment, transaction, reason) {
   const ts = nowIso();
-  db.prepare(
-    `UPDATE payments SET status = 'FAILED', transaction_id = ?, transaction_reference = ?, updated_at = ? WHERE id = ?`
-  ).run(transaction.id, transaction.reference || null, ts, payment.id);
-  paymentService.audit({
+  await Payment.updateOne(
+    { id: payment.id },
+    {
+      $set: {
+        status: "FAILED",
+        transaction_id: transaction.id,
+        transaction_reference: transaction.reference || null,
+        updated_at: ts,
+      },
+    }
+  );
+  await paymentService.audit({
     paymentId: payment.id,
     orderId: payment.order_id,
     providerPaymentId: payment.provider_payment_id,
@@ -174,7 +176,7 @@ function applyFailed(payment, transaction, reason) {
   });
 }
 
-function processTransactionWebhook(payload) {
+async function processTransactionWebhook(payload) {
   const webhookType = payload?.webhookType || payload?.type;
   const environment = payload?.environment;
   const transaction = payload?.transaction || payload?.data?.transaction;
@@ -188,7 +190,7 @@ function processTransactionWebhook(payload) {
   }
   const type = String(webhookType || "").toUpperCase();
   if (!["TRANSACTIONS", "TRANSACTION", "QRPAY", "QR_PAY"].includes(type)) {
-    insertWebhookEvent({
+    await insertWebhookEvent({
       webhookType,
       environment,
       payload,
@@ -208,63 +210,55 @@ function processTransactionWebhook(payload) {
     transactionId: transaction.id,
     amount: transaction.amount,
     webhookType,
+    referenceNumber: transaction.paymentMeta?.referenceNumber,
   });
 
-  const priorEvent = db
-    .prepare(
-      `SELECT processing_status FROM webhook_events WHERE transaction_id = ? ORDER BY id DESC LIMIT 1`
-    )
-    .get(transaction.id);
-  if (priorEvent) {
-    logger.info("webhook.duplicate", {
-      transactionId: transaction.id,
-      status: priorEvent.processing_status,
-    });
-    return {
-      ok: true,
-      duplicate: true,
-      status: priorEvent.processing_status,
-    };
-  }
-
-  const existing = paymentService.getPaymentByTransactionId(transaction.id);
-  if (existing) {
-    insertWebhookEvent({
+  const existingPaid = await paymentService.getPaymentByTransactionId(transaction.id);
+  if (existingPaid && existingPaid.status === "SUCCESS") {
+    await insertWebhookEvent({
       transactionId: transaction.id,
       webhookType,
       environment,
       payload,
       status: "DUPLICATE",
     });
-    logger.info("webhook.duplicate", {
-      transactionId: transaction.id,
-      paymentId: existing.id,
-      orderId: existing.order_id,
-      status: existing.status,
-    });
     return {
       ok: true,
       duplicate: true,
-      paymentId: existing.id,
-      orderId: existing.order_id,
-      status: existing.status,
+      paymentId: existingPaid.id,
+      orderId: existingPaid.order_id,
+      status: existingPaid.status,
     };
   }
 
-  const matched = matchPayment(transaction, transaction.paymentMeta || payload.paymentMeta);
+  const priorEvent = plain(
+    await WebhookEvent.findOne({ transaction_id: transaction.id }).sort({ _id: -1 })
+  );
+  if (priorEvent && priorEvent.processing_status === "PAID") {
+    return {
+      ok: true,
+      duplicate: true,
+      status: priorEvent.processing_status,
+    };
+  }
+
+  const matched = await matchPayment(
+    transaction,
+    transaction.paymentMeta || payload.paymentMeta
+  );
   if (!matched.payment) {
     const reason = matched.ambiguous
       ? `ambiguous:${matched.strategy}`
       : "unmatched";
-    insertUnmatched({ transaction, reason, payload });
-    insertWebhookEvent({
+    await insertUnmatched({ transaction, reason, payload });
+    await insertWebhookEvent({
       transactionId: transaction.id,
       webhookType,
       environment,
       payload,
       status: "UNMATCHED",
     });
-    paymentService.audit({
+    await paymentService.audit({
       transactionId: transaction.id,
       amount: transaction.amount,
       toStatus: "UNMATCHED",
@@ -273,6 +267,7 @@ function processTransactionWebhook(payload) {
     logger.warn("webhook.unmatched", {
       transactionId: transaction.id,
       amount: transaction.amount,
+      referenceNumber: transaction.paymentMeta?.referenceNumber,
       reason,
     });
     return { ok: true, unmatched: true, reason };
@@ -280,7 +275,7 @@ function processTransactionWebhook(payload) {
 
   const payment = matched.payment;
   if (payment.status === "SUCCESS") {
-    insertWebhookEvent({
+    await insertWebhookEvent({
       transactionId: transaction.id,
       webhookType,
       environment,
@@ -291,14 +286,20 @@ function processTransactionWebhook(payload) {
       ok: true,
       duplicate: true,
       paymentId: payment.id,
+      orderId: payment.order_id,
       status: payment.status,
     };
   }
 
-  const amountCheck = validateAmount(payment.amount, transaction.amount);
+  const casConfirmedRef = Boolean(
+    transaction.paymentMeta?.referenceNumber || payload.paymentMeta?.referenceNumber
+  );
+  const amountCheck = validateAmount(payment.amount, transaction.amount, {
+    casConfirmedRef,
+  });
   if (amountCheck.result !== "OK") {
-    applyFailed(payment, transaction, amountCheck.reason);
-    insertWebhookEvent({
+    await applyFailed(payment, transaction, amountCheck.reason);
+    await insertWebhookEvent({
       transactionId: transaction.id,
       webhookType,
       environment,
@@ -321,8 +322,8 @@ function processTransactionWebhook(payload) {
     };
   }
 
-  applyPaid(payment, transaction);
-  insertWebhookEvent({
+  await applyPaid(payment, transaction);
+  await insertWebhookEvent({
     transactionId: transaction.id,
     webhookType,
     environment,
@@ -349,7 +350,7 @@ function extractTransactions(data) {
 }
 
 async function syncPendingFromCas(orderId) {
-  const payment = paymentService.getPaymentByOrderId(orderId);
+  const payment = await paymentService.getPaymentByOrderId(orderId);
   if (!payment || payment.status !== "PENDING") return;
 
   const fromDate = (payment.created_at || nowIso()).slice(0, 10);
@@ -372,12 +373,12 @@ async function syncPendingFromCas(orderId) {
   const txs = extractTransactions(data);
   for (const tx of txs) {
     if (!tx?.id) continue;
-    processTransactionWebhook({
+    await processTransactionWebhook({
       webhookType: "TRANSACTIONS",
       environment: config.cas.environment,
       transaction: tx,
     });
-    const latest = paymentService.getPaymentByOrderId(orderId);
+    const latest = await paymentService.getPaymentByOrderId(orderId);
     if (latest && latest.status === "SUCCESS") break;
   }
 }

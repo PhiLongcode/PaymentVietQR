@@ -35,7 +35,7 @@ router.post(
             paymentMeta: body.paymentMeta || {},
           },
         };
-    const result = matchingService.processTransactionWebhook(payload);
+    const result = await matchingService.processTransactionWebhook(payload);
     res.json(result);
   })
 );
@@ -43,7 +43,7 @@ router.post(
 router.get(
   "/unmatched",
   asyncHandler(async (req, res) => {
-    res.json({ items: matchingService.listUnmatched() });
+    res.json({ items: await matchingService.listUnmatched() });
   })
 );
 

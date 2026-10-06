@@ -1,70 +1,63 @@
-const { db, nowIso, newId } = require("../db");
+const { nowIso, newId } = require("../db");
+const { Payment, AuditLog, plain } = require("../db/models");
 const logger = require("../logger");
 const cas = require("./casClient");
 const grantService = require("./grantService");
 const orderService = require("./orderService");
 
-function getPaymentByOrderId(orderId) {
-  return db
-    .prepare(
-      `SELECT * FROM payments WHERE order_id = ? ORDER BY created_at DESC LIMIT 1`
-    )
-    .get(orderId);
+async function getPaymentByOrderId(orderId) {
+  return plain(await Payment.findOne({ order_id: orderId }).sort({ created_at: -1 }));
 }
 
-function getPaymentById(id) {
-  return db.prepare(`SELECT * FROM payments WHERE id = ?`).get(id);
+async function getPaymentById(id) {
+  return plain(await Payment.findOne({ id }));
 }
 
-function getPaymentByProviderId(providerPaymentId) {
-  return db
-    .prepare(`SELECT * FROM payments WHERE provider_payment_id = ?`)
-    .get(providerPaymentId);
+async function getPaymentByProviderId(providerPaymentId) {
+  return plain(await Payment.findOne({ provider_payment_id: providerPaymentId }));
 }
 
-function getPaymentByTransactionId(transactionId) {
-  return db
-    .prepare(`SELECT * FROM payments WHERE transaction_id = ?`)
-    .get(transactionId);
+async function getPaymentByTransactionId(transactionId) {
+  return plain(await Payment.findOne({ transaction_id: transactionId }));
 }
 
-function findPendingByVirtualAccount(va) {
+async function findPendingByVirtualAccount(va) {
   if (!va) return [];
-  return db
-    .prepare(
-      `SELECT * FROM payments WHERE virtual_account_number = ? AND status = 'PENDING'`
-    )
-    .all(va);
+  const rows = await Payment.find({ virtual_account_number: va, status: "PENDING" });
+  return rows.map(plain);
 }
 
-function findPendingByVirtualAccountInText(text) {
+async function findPendingByVirtualAccountInText(text) {
   if (!text) return [];
-  return db
-    .prepare(
-      `SELECT * FROM payments
-       WHERE status = 'PENDING'
-         AND virtual_account_number IS NOT NULL
-         AND virtual_account_number != ''
-         AND instr(?, virtual_account_number) > 0`
-    )
-    .all(text);
+  const pending = await Payment.find({
+    status: "PENDING",
+    virtual_account_number: { $nin: [null, ""] },
+  });
+  return pending.map(plain).filter((p) => text.includes(p.virtual_account_number));
 }
 
-function findPendingByDescription(text) {
+async function findPendingByDescription(text) {
   if (!text) return [];
-  return db
-    .prepare(
-      `SELECT * FROM payments
-       WHERE status = 'PENDING'
-         AND (
-           instr(lower(?), lower(reference_number)) > 0
-           OR instr(lower(?), lower(order_id)) > 0
-         )`
-    )
-    .all(text, text);
+  const lower = text.toLowerCase();
+  const pending = await Payment.find({ status: "PENDING" });
+  return pending
+    .map(plain)
+    .filter(
+      (p) =>
+        (p.reference_number && lower.includes(String(p.reference_number).toLowerCase())) ||
+        (p.order_id && lower.includes(String(p.order_id).toLowerCase()))
+    );
 }
 
-function audit({
+async function findByOrderOrReference(code) {
+  if (!code) return [];
+  const rows = await Payment.find({
+    $or: [{ order_id: code }, { reference_number: code }],
+  }).sort({ created_at: -1 });
+  return rows.map(plain);
+}
+
+async function audit({
   paymentId,
   orderId,
   providerPaymentId,
@@ -74,22 +67,18 @@ function audit({
   toStatus,
   reason,
 }) {
-  db.prepare(
-    `INSERT INTO audit_logs (
-      payment_id, order_id, provider, provider_payment_id, transaction_id,
-      amount, from_status, to_status, reason, created_at
-    ) VALUES (?, ?, 'CAS', ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    paymentId || null,
-    orderId || null,
-    providerPaymentId || null,
-    transactionId || null,
-    amount ?? null,
-    fromStatus || null,
-    toStatus || null,
-    reason || null,
-    nowIso()
-  );
+  await AuditLog.create({
+    payment_id: paymentId || null,
+    order_id: orderId || null,
+    provider: "CAS",
+    provider_payment_id: providerPaymentId || null,
+    transaction_id: transactionId || null,
+    amount: amount ?? null,
+    from_status: fromStatus || null,
+    to_status: toStatus || null,
+    reason: reason || null,
+    created_at: nowIso(),
+  });
 }
 
 function unwrapQrPay(data) {
@@ -108,7 +97,7 @@ function unwrapQrPay(data) {
 }
 
 async function createQr({ orderId, amount }) {
-  const order = orderService.getOrder(orderId);
+  const order = await orderService.getOrder(orderId);
   if (!order) {
     const err = new Error("Order not found");
     err.status = 404;
@@ -142,7 +131,7 @@ async function createQr({ orderId, amount }) {
     throw err;
   }
 
-  const existing = getPaymentByOrderId(orderId);
+  const existing = await getPaymentByOrderId(orderId);
   if (existing && existing.status === "PENDING" && existing.qr_code) {
     return existing;
   }
@@ -167,7 +156,7 @@ async function createQr({ orderId, amount }) {
     referenceNumber: transferContent,
   };
 
-  const casData = await grantService.withAccessToken((token, grant) =>
+  const casData = await grantService.withAccessToken((token) =>
     cas.createQrPay(token, casPayload)
   );
   const q = unwrapQrPay(casData);
@@ -180,32 +169,29 @@ async function createQr({ orderId, amount }) {
 
   const id = newId("PAY");
   const ts = nowIso();
-  const grant = grantService.getActiveGrant();
+  const grant = await grantService.getActiveGrant();
 
-  db.prepare(
-    `INSERT INTO payments (
-      id, order_id, provider, provider_payment_id, amount, currency,
-      qr_code, account_name, account_number, virtual_account_number,
-      reference_number, fi_name, status, expires_at, created_at, updated_at
-    ) VALUES (?, ?, 'CAS', ?, ?, 'VND', ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`
-  ).run(
+  await Payment.create({
     id,
-    order.id,
-    q.id,
-    order.amount,
-    q.qrCode,
-    q.accountName || grant?.account_name || null,
-    q.accountNumber || grant?.account_number || null,
-    q.virtualAccountNumber || null,
-    q.referenceNumber || transferContent,
-    q.fiName || grant?.fi_name || null,
-    q.expiredAt || null,
-    ts,
-    ts
-  );
+    order_id: order.id,
+    provider: "CAS",
+    provider_payment_id: q.id,
+    amount: order.amount,
+    currency: "VND",
+    qr_code: q.qrCode,
+    account_name: q.accountName || grant?.account_name || null,
+    account_number: q.accountNumber || grant?.account_number || null,
+    virtual_account_number: q.virtualAccountNumber || null,
+    reference_number: transferContent,
+    fi_name: q.fiName || grant?.fi_name || null,
+    status: "PENDING",
+    expires_at: q.expiredAt || null,
+    created_at: ts,
+    updated_at: ts,
+  });
 
-  orderService.setOrderStatus(order.id, "PAYMENT_PROCESSING");
-  audit({
+  await orderService.setOrderStatus(order.id, "PAYMENT_PROCESSING");
+  await audit({
     paymentId: id,
     orderId: order.id,
     providerPaymentId: q.id,
@@ -258,29 +244,31 @@ function mapAppStatus(orderStatus, paymentStatus) {
   return "PENDING";
 }
 
-function getOrderPayment(orderId) {
-  const order = orderService.getOrder(orderId);
+async function getOrderPayment(orderId) {
+  const order = await orderService.getOrder(orderId);
   if (!order) {
     const err = new Error("Order not found");
     err.status = 404;
     err.code = "ORDER_NOT_FOUND";
     throw err;
   }
-  const payment = getPaymentByOrderId(orderId);
-  return toPublicPayment(payment, order) || {
-    orderId: order.id,
-    description: order.id,
-    amount: order.amount,
-    currency: order.currency,
-    status: mapAppStatus(order.status, null),
-    paymentStatus: null,
-    orderStatus: order.status,
-    qrCode: null,
-  };
+  const payment = await getPaymentByOrderId(orderId);
+  return (
+    toPublicPayment(payment, order) || {
+      orderId: order.id,
+      description: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      status: mapAppStatus(order.status, null),
+      paymentStatus: null,
+      orderStatus: order.status,
+      qrCode: null,
+    }
+  );
 }
 
-function cancelOrder(orderId) {
-  const order = orderService.getOrder(orderId);
+async function cancelOrder(orderId) {
+  const order = await orderService.getOrder(orderId);
   if (!order) {
     const err = new Error("Order not found");
     err.status = 404;
@@ -295,13 +283,14 @@ function cancelOrder(orderId) {
   }
   if (order.status === "CANCELLED") return getOrderPayment(orderId);
 
-  const payment = getPaymentByOrderId(orderId);
+  const payment = await getPaymentByOrderId(orderId);
   const ts = nowIso();
   if (payment && payment.status === "PENDING") {
-    db.prepare(
-      `UPDATE payments SET status = 'FAILED', updated_at = ? WHERE id = ?`
-    ).run(ts, payment.id);
-    audit({
+    await Payment.updateOne(
+      { id: payment.id },
+      { $set: { status: "FAILED", updated_at: ts } }
+    );
+    await audit({
       paymentId: payment.id,
       orderId,
       providerPaymentId: payment.provider_payment_id,
@@ -311,7 +300,7 @@ function cancelOrder(orderId) {
       reason: "user_cancelled",
     });
   }
-  orderService.setOrderStatus(orderId, "CANCELLED");
+  await orderService.setOrderStatus(orderId, "CANCELLED");
   return getOrderPayment(orderId);
 }
 
@@ -325,6 +314,7 @@ module.exports = {
   findPendingByVirtualAccount,
   findPendingByVirtualAccountInText,
   findPendingByDescription,
+  findByOrderOrReference,
   audit,
   toPublicPayment,
 };

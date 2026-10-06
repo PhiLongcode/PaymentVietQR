@@ -1,18 +1,15 @@
-const { db, nowIso } = require("../db");
+const { nowIso } = require("../db");
+const { Order, plain } = require("../db/models");
 
 const ORDER_CODE_LEN = 9;
 const ORDER_CODE_PREFIX = "DH";
 
-function generateOrderCode() {
+async function generateOrderCode() {
   const prefix = ORDER_CODE_PREFIX;
   const seqWidth = ORDER_CODE_LEN - prefix.length;
-  const row = db
-    .prepare(
-      `SELECT id FROM orders
-       WHERE id GLOB 'DH[0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
-       ORDER BY id DESC LIMIT 1`
-    )
-    .get();
+  const row = await Order.findOne({ id: { $regex: /^DH\d{7}$/ } })
+    .sort({ id: -1 })
+    .lean();
   const last = row?.id ? Number(row.id.slice(prefix.length)) : 0;
   const next = Number.isFinite(last) ? last + 1 : 1;
   if (next > 10 ** seqWidth - 1) {
@@ -31,7 +28,7 @@ function generateOrderCode() {
   return code;
 }
 
-function createOrder(amount) {
+async function createOrder(amount) {
   const n = Number(amount);
   if (!Number.isInteger(n) || n <= 0) {
     const err = new Error("amount must be an integer > 0");
@@ -39,31 +36,32 @@ function createOrder(amount) {
     err.code = "INVALID_AMOUNT";
     throw err;
   }
-  const id = generateOrderCode();
+  const id = await generateOrderCode();
   const ts = nowIso();
-  db.prepare(
-    `INSERT INTO orders (id, amount, currency, status, created_at, updated_at)
-     VALUES (?, ?, 'VND', 'PENDING_PAYMENT', ?, ?)`
-  ).run(id, n, ts, ts);
+  await Order.create({
+    id,
+    amount: n,
+    currency: "VND",
+    status: "PENDING_PAYMENT",
+    created_at: ts,
+    updated_at: ts,
+  });
   return getOrder(id);
 }
 
-function getOrder(id) {
-  return db.prepare(`SELECT * FROM orders WHERE id = ?`).get(id);
+async function getOrder(id) {
+  return plain(await Order.findOne({ id }));
 }
 
-function setOrderStatus(id, status) {
+async function setOrderStatus(id, status) {
   const ts = nowIso();
-  db.prepare(`UPDATE orders SET status = ?, updated_at = ? WHERE id = ?`).run(
-    status,
-    ts,
-    id
-  );
+  await Order.updateOne({ id }, { $set: { status, updated_at: ts } });
   return getOrder(id);
 }
 
-function listOrders() {
-  return db.prepare(`SELECT * FROM orders ORDER BY created_at DESC LIMIT 50`).all();
+async function listOrders() {
+  const rows = await Order.find({}).sort({ created_at: -1 }).limit(50);
+  return rows.map(plain);
 }
 
 module.exports = {

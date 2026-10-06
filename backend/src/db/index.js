@@ -1,14 +1,6 @@
-const fs = require("fs");
-const path = require("path");
-const Database = require("better-sqlite3");
+const mongoose = require("mongoose");
 const { config } = require("../config");
-const { initSchema } = require("./schema");
-
-const dir = path.dirname(config.dbPath);
-if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-const db = new Database(config.dbPath);
-initSchema(db);
+const logger = require("../logger");
 
 function nowIso() {
   return new Date().toISOString();
@@ -19,4 +11,17 @@ function newId(prefix) {
   return `${prefix}-${Date.now().toString(36).toUpperCase()}${rand}`;
 }
 
-module.exports = { db, nowIso, newId };
+async function connectDb() {
+  const uri = config.mongoUri;
+  if (!uri) {
+    throw new Error("Missing MONGODB_URI. Set Atlas connection string in env.");
+  }
+  mongoose.set("strictQuery", true);
+  await mongoose.connect(uri);
+  logger.info("mongo.connected", {
+    host: mongoose.connection.host,
+    db: mongoose.connection.name,
+  });
+}
+
+module.exports = { connectDb, nowIso, newId, mongoose };

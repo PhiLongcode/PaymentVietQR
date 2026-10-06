@@ -17,7 +17,7 @@ function isPaidPayload(data) {
 router.post(
   "/",
   asyncHandler(async (req, res) => {
-    const order = orderService.createOrder(req.body?.amount);
+    const order = await orderService.createOrder(req.body?.amount);
     res.status(201).json(order);
   })
 );
@@ -25,7 +25,7 @@ router.post(
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    res.json({ orders: orderService.listOrders() });
+    res.json({ orders: await orderService.listOrders() });
   })
 );
 
@@ -33,7 +33,7 @@ router.get(
   "/:orderId/payment",
   asyncHandler(async (req, res) => {
     await matchingService.syncPendingFromCas(req.params.orderId);
-    res.json(paymentService.getOrderPayment(req.params.orderId));
+    res.json(await paymentService.getOrderPayment(req.params.orderId));
   })
 );
 
@@ -41,7 +41,7 @@ router.get(
   "/:orderId/payment-status",
   asyncHandler(async (req, res) => {
     await matchingService.syncPendingFromCas(req.params.orderId);
-    const data = paymentService.getOrderPayment(req.params.orderId);
+    const data = await paymentService.getOrderPayment(req.params.orderId);
     res.json({
       orderId: data.orderId,
       status: data.status,
@@ -56,7 +56,7 @@ router.get(
 router.get("/:orderId/events", async (req, res, next) => {
   try {
     const orderId = req.params.orderId;
-    if (!orderService.getOrder(orderId)) {
+    if (!(await orderService.getOrder(orderId))) {
       const err = new Error("Order not found");
       err.status = 404;
       err.code = "ORDER_NOT_FOUND";
@@ -72,7 +72,7 @@ router.get("/:orderId/events", async (req, res, next) => {
     const send = async () => {
       try {
         await matchingService.syncPendingFromCas(orderId);
-        const data = paymentService.getOrderPayment(orderId);
+        const data = await paymentService.getOrderPayment(orderId);
         res.write(`data: ${JSON.stringify(data)}\n\n`);
         if (isPaidPayload(data)) {
           if (timer) clearInterval(timer);
@@ -101,7 +101,7 @@ router.get("/:orderId/events", async (req, res, next) => {
 router.post(
   "/:orderId/cancel",
   asyncHandler(async (req, res) => {
-    res.json(paymentService.cancelOrder(req.params.orderId));
+    res.json(await paymentService.cancelOrder(req.params.orderId));
   })
 );
 

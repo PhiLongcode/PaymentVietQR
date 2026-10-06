@@ -1,6 +1,6 @@
 # Demo Payment VietQR (Cas QR Pay)
 
-Demo checkout: **Next.js** + **Express** + **SQLite**. Luồng Cas Link đầy đủ theo [QR Pay](https://cas.so/en/product/qr-pay/) và [Cas Link](https://cas.so/en/general/link/).
+Demo checkout: **Next.js** + **Express** + **MongoDB Atlas**. Luồng Cas Link đầy đủ theo [QR Pay](https://cas.so/en/product/qr-pay/) và [Cas Link](https://cas.so/en/general/link/).
 
 ```
 Grant token (scopes=qrpay,transaction)
@@ -22,7 +22,7 @@ copy .env.example backend\.env
 copy .env.example frontend\.env.local
 ```
 
-Điền `CAS_CLIENT_ID` và `CAS_SECRET_KEY` vào `backend/.env`. Không commit file này.
+Điền `CAS_CLIENT_ID`, `CAS_SECRET_KEY` và `MONGODB_URI` (Atlas connection string) vào `backend/.env`. Network Access Atlas: cho IP máy local và Render. Không commit file này.
 
 2. Cài và chạy:
 
@@ -103,4 +103,4 @@ Gửi lần 2 cùng `transactionId=ABC123` → vẫn SUCCESS, không cộng ti�
 | GET | `/api/v1/unmatched` |
 | POST | `/api/v1/dev/simulate-webhook` |
 
-SQLite: `backend/data/app.db`. Token Cas lưu trong `cas_grants`, **không** trả về FE, **không** log `secretKey` / `accessToken`.
+MongoDB Atlas (`MONGODB_URI`). Token Cas lưu collection `cas_grants`, **không** trả về FE, **không** log `secretKey` / `accessToken`. Network Access Atlas phải cho IP Render (`0.0.0.0/0` nếu cần).

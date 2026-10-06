@@ -1,8 +1,10 @@
 const express = require("express");
 const cors = require("cors");
+const mongoose = require("mongoose");
 const { config } = require("./config");
 const logger = require("./logger");
-const { errorHandler } = require("./middleware/errorHandler");
+const { connectDb } = require("./db");
+const { errorHandler, asyncHandler } = require("./middleware/errorHandler");
 const casRoutes = require("./routes/cas");
 const orderRoutes = require("./routes/orders");
 const paymentRoutes = require("./routes/payments");
@@ -22,7 +24,11 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (req, res) => {
-  res.json({ ok: true, env: config.nodeEnv });
+  res.json({
+    ok: true,
+    env: config.nodeEnv,
+    mongo: mongoose.connection.readyState === 1 ? "up" : "down",
+  });
 });
 
 app.get("/", (req, res) => {
@@ -38,20 +44,26 @@ app.use("/api/v1/payments", paymentRoutes);
 app.use("/api/v1/webhooks", webhookRoutes);
 app.use("/api/v1/dev", devRoutes);
 
-app.get("/api/v1/unmatched", (req, res, next) => {
-  try {
-    res.json({ items: matchingService.listUnmatched() });
-  } catch (err) {
-    next(err);
-  }
-});
+app.get(
+  "/api/v1/unmatched",
+  asyncHandler(async (req, res) => {
+    res.json({ items: await matchingService.listUnmatched() });
+  })
+);
 
 app.use(errorHandler);
 
-app.listen(config.port, () => {
-  logger.info("server.started", {
-    port: config.port,
-    env: config.nodeEnv,
-    casBaseUrl: config.cas.baseUrl,
+connectDb()
+  .then(() => {
+    app.listen(config.port, () => {
+      logger.info("server.started", {
+        port: config.port,
+        env: config.nodeEnv,
+        casBaseUrl: config.cas.baseUrl,
+      });
+    });
+  })
+  .catch((err) => {
+    logger.error("mongo.connect.failed", { message: err.message });
+    process.exit(1);
   });
-});

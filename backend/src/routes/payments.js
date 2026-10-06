@@ -15,10 +15,8 @@ router.post(
       throw err;
     }
     const payment = await paymentService.createQr({ orderId, amount });
-    res.status(201).json(paymentService.toPublicPayment(
-      payment,
-      require("../services/orderService").getOrder(orderId)
-    ));
+    const order = await require("../services/orderService").getOrder(orderId);
+    res.status(201).json(paymentService.toPublicPayment(payment, order));
   })
 );
 
