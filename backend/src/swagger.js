@@ -92,7 +92,7 @@ const spec = {
       post: {
         tags: ["Orders"],
         summary:
-          "Tạo đơn — id tự sinh DH-#####; description tùy chọn (nội dung CK ≤9)",
+          "Tạo đơn — id tự sinh DH#####; description tùy chọn (≤9, chỉ A-Z0-9)",
         requestBody: {
           required: true,
           content: {
@@ -105,9 +105,9 @@ const spec = {
                   description: {
                     type: "string",
                     maxLength: 9,
-                    example: "DH-01234",
+                    example: "DH01234",
                     description:
-                      "Nội dung CK gửi Cas. Trống = dùng order.id. Alias: transferContent, content",
+                      "Nội dung CK gửi Cas (alphanumeric). Cas từ chối dấu '-'. Trống = order.id. Alias: transferContent, content",
                   },
                 },
               },
@@ -126,7 +126,7 @@ const spec = {
             name: "orderId",
             in: "path",
             required: true,
-            schema: { type: "string", example: "DH-01234" },
+            schema: { type: "string", example: "DH01234" },
           },
         ],
         responses: { 200: { description: "qrCode, status, account" } },
@@ -174,13 +174,14 @@ const spec = {
                 type: "object",
                 required: ["orderId"],
                 properties: {
-                  orderId: { type: "string", example: "DH-01234" },
+                  orderId: { type: "string", example: "DH01234" },
                   amount: { type: "integer", example: 2000 },
                   description: {
                     type: "string",
                     maxLength: 9,
                     example: "ABC12XYZ",
-                    description: "Ghi đè nội dung CK trước khi gọi Cas /qr-pay",
+                    description:
+                      "Ghi đè nội dung CK (chỉ A-Z0-9, không dấu -)",
                   },
                 },
               },

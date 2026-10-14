@@ -140,16 +140,20 @@ export default function HomePage() {
                 <input
                   type="text"
                   maxLength={9}
-                  placeholder="VD: DH-01234"
+                  placeholder="VD: DH01234"
+                  pattern="[A-Za-z0-9]*"
+                  title="Chỉ chữ và số, không dấu gạch (Cas từ chối DH-01234)"
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  onChange={(e) =>
+                    setDescription(e.target.value.replace(/[^A-Za-z0-9]/g, ""))
+                  }
                   autoComplete="off"
                   spellCheck={false}
                 />
               </label>
               <p className="muted">
-                Để trống = dùng mã đơn tự sinh (<code>DH-#####</code>). Cas giới
-                hạn 9 ký tự, không khoảng trắng.
+                Để trống = mã đơn tự sinh (<code>DH01234</code>). Cas tối đa 9
+                ký tự, chỉ chữ/số — không dùng dấu <code>-</code>.
               </p>
               <button className="btn" disabled={busy} type="submit">
                 {busy ? "Đang tạo QR…" : "Tạo QR thanh toán"}

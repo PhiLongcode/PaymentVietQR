@@ -1,16 +1,20 @@
 const { nowIso } = require("../db");
 const { Order, plain } = require("../db/models");
 
-/** Cas description max 9 chars. Default auto id: DH-01234 (8). */
-const ORDER_CODE_LEN = 8;
-const ORDER_CODE_PREFIX = "DH-";
+/**
+ * Cas description: max 9 chars, no hyphen/special (sandbox rejects "DH-01234").
+ * Default auto id: DH01234 (7).
+ */
+const ORDER_CODE_LEN = 7;
+const ORDER_CODE_PREFIX = "DH";
 const ORDER_CODE_DIGITS = 5;
-const ORDER_CODE_RE = /^DH-\d{5}$/;
+const ORDER_CODE_RE = /^DH\d{5}$/;
 const CAS_DESC_MAX = 9;
+const CAS_DESC_RE = /^[A-Za-z0-9]+$/;
 const ACTIVE_ORDER_STATUSES = ["PENDING_PAYMENT", "PAYMENT_PROCESSING"];
 
 async function generateOrderCode() {
-  const row = await Order.findOne({ id: { $regex: /^DH-\d{5}$/ } })
+  const row = await Order.findOne({ id: { $regex: /^DH\d{5}$/ } })
     .sort({ id: -1 })
     .lean();
   const last = row?.id ? Number(row.id.slice(ORDER_CODE_PREFIX.length)) : 0;
@@ -23,7 +27,7 @@ async function generateOrderCode() {
   }
   const code = `${ORDER_CODE_PREFIX}${String(next).padStart(ORDER_CODE_DIGITS, "0")}`;
   if (code.length !== ORDER_CODE_LEN || !ORDER_CODE_RE.test(code)) {
-    const err = new Error("Generated order code must match DH-01234");
+    const err = new Error("Generated order code must match DH01234");
     err.status = 500;
     err.code = "INVALID_ORDER_CODE";
     throw err;
@@ -33,7 +37,7 @@ async function generateOrderCode() {
 
 /**
  * Normalize FE transfer content for Cas description / referenceNumber.
- * Empty → null (caller uses order id). Max 9 chars.
+ * Empty → null (caller uses order id). Max 9 chars, alphanumeric only.
  */
 function normalizeTransferContent(raw) {
   if (raw == null || raw === "") return null;
@@ -49,6 +53,14 @@ function normalizeTransferContent(raw) {
   }
   if (/\s/.test(text)) {
     const err = new Error("Transfer content must not contain spaces");
+    err.status = 400;
+    err.code = "INVALID_DESCRIPTION";
+    throw err;
+  }
+  if (!CAS_DESC_RE.test(text)) {
+    const err = new Error(
+      "Transfer content must be alphanumeric only (Cas rejects '-', e.g. use DH01234 not DH-01234)"
+    );
     err.status = 400;
     err.code = "INVALID_DESCRIPTION";
     throw err;
@@ -157,6 +169,7 @@ module.exports = {
   ORDER_CODE_PREFIX,
   ORDER_CODE_RE,
   CAS_DESC_MAX,
+  CAS_DESC_RE,
   createOrder,
   getOrder,
   setOrderStatus,

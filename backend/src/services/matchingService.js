@@ -57,8 +57,8 @@ async function listUnmatched() {
   });
 }
 
-// DH-01234 (new) + legacy DH0000001 from older demos
-const ORDER_CODE_RE = /\bDH-\d{5}\b|\bDH\d{7}\b/gi;
+// DH01234 (current) + DH-01234 / DH0000001 legacy
+const ORDER_CODE_RE = /\bDH-?\d{5}\b|\bDH\d{7}\b/gi;
 
 function extractOrderCodes(...texts) {
   const found = [];
