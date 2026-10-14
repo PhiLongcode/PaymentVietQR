@@ -96,8 +96,8 @@ function unwrapQrPay(data) {
   };
 }
 
-async function createQr({ orderId, amount }) {
-  const order = await orderService.getOrder(orderId);
+async function createQr({ orderId, amount, description }) {
+  let order = await orderService.getOrder(orderId);
   if (!order) {
     const err = new Error("Order not found");
     err.status = 404;
@@ -142,9 +142,15 @@ async function createQr({ orderId, amount }) {
     throw err;
   }
 
-  const transferContent = order.id;
+  if (description != null && String(description).trim() !== "") {
+    order = await orderService.setOrderDescription(orderId, description);
+  }
+
+  const transferContent = order.description || order.id;
   if (!transferContent || transferContent.length > 9) {
-    const err = new Error("Order code (transfer description) must be at most 9 characters");
+    const err = new Error(
+      "Transfer content (description) must be at most 9 characters"
+    );
     err.status = 400;
     err.code = "INVALID_DESCRIPTION";
     throw err;
@@ -216,9 +222,11 @@ async function createQr({ orderId, amount }) {
 
 function toPublicPayment(payment, order) {
   if (!payment) return null;
+  const description =
+    payment.reference_number || order.description || order.id;
   return {
     orderId: order.id,
-    description: order.id,
+    description,
     paymentId: payment.id,
     amount: payment.amount,
     currency: payment.currency,
@@ -230,7 +238,7 @@ function toPublicPayment(payment, order) {
     accountNumber: payment.account_number,
     virtualAccountNumber: payment.virtual_account_number,
     fiName: payment.fi_name,
-    referenceNumber: payment.reference_number,
+    referenceNumber: payment.reference_number || description,
     expiresAt: payment.expires_at,
     paidAt: payment.paid_at,
   };
@@ -256,7 +264,7 @@ async function getOrderPayment(orderId) {
   return (
     toPublicPayment(payment, order) || {
       orderId: order.id,
-      description: order.id,
+      description: order.description || order.id,
       amount: order.amount,
       currency: order.currency,
       status: mapAppStatus(order.status, null),

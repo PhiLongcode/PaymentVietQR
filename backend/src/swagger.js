@@ -91,7 +91,8 @@ const spec = {
       },
       post: {
         tags: ["Orders"],
-        summary: "Tạo đơn — mã DH-01234 (8 ký tự = nội dung CK, Cas max 9)",
+        summary:
+          "Tạo đơn — id tự sinh DH-#####; description tùy chọn (nội dung CK ≤9)",
         requestBody: {
           required: true,
           content: {
@@ -99,12 +100,21 @@ const spec = {
               schema: {
                 type: "object",
                 required: ["amount"],
-                properties: { amount: { type: "integer", example: 2000 } },
+                properties: {
+                  amount: { type: "integer", example: 2000 },
+                  description: {
+                    type: "string",
+                    maxLength: 9,
+                    example: "DH-01234",
+                    description:
+                      "Nội dung CK gửi Cas. Trống = dùng order.id. Alias: transferContent, content",
+                  },
+                },
               },
             },
           },
         },
-        responses: { 201: { description: "Order PENDING_PAYMENT" } },
+        responses: { 201: { description: "Order PENDING_PAYMENT + description" } },
       },
     },
     "/api/v1/orders/{orderId}/payment": {
@@ -166,6 +176,12 @@ const spec = {
                 properties: {
                   orderId: { type: "string", example: "DH-01234" },
                   amount: { type: "integer", example: 2000 },
+                  description: {
+                    type: "string",
+                    maxLength: 9,
+                    example: "ABC12XYZ",
+                    description: "Ghi đè nội dung CK trước khi gọi Cas /qr-pay",
+                  },
                 },
               },
             },

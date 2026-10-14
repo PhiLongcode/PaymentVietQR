@@ -21,6 +21,8 @@ const orderSchema = new mongoose.Schema(
     amount: { type: Number, required: true },
     currency: { type: String, default: "VND" },
     status: { type: String, required: true, index: true },
+    /** Nội dung CK gửi Cas (≤9). Custom từ FE hoặc mặc định = id. */
+    description: { type: String, index: true },
     created_at: String,
     updated_at: String,
   },

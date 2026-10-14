@@ -27,15 +27,22 @@ export const api = {
       body: JSON.stringify({ publicToken }),
     }),
   listOrders: () => request("/api/v1/orders"),
-  createOrder: (amount) =>
+  createOrder: (amount, description) =>
     request("/api/v1/orders", {
       method: "POST",
-      body: JSON.stringify({ amount }),
+      body: JSON.stringify({
+        amount,
+        ...(description ? { description } : {}),
+      }),
     }),
-  createQr: (orderId, amount) =>
+  createQr: (orderId, amount, description) =>
     request("/api/v1/payments/qr", {
       method: "POST",
-      body: JSON.stringify({ orderId, amount }),
+      body: JSON.stringify({
+        orderId,
+        amount,
+        ...(description ? { description } : {}),
+      }),
     }),
   getPayment: (orderId) => request(`/api/v1/orders/${orderId}/payment`),
   getPaymentStatus: (orderId) =>

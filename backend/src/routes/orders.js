@@ -17,7 +17,12 @@ function isPaidPayload(data) {
 router.post(
   "/",
   asyncHandler(async (req, res) => {
-    const order = await orderService.createOrder(req.body?.amount);
+    const order = await orderService.createOrder(req.body?.amount, {
+      description:
+        req.body?.description ??
+        req.body?.transferContent ??
+        req.body?.content,
+    });
     res.status(201).json(order);
   })
 );

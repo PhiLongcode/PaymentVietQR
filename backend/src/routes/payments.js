@@ -7,14 +7,19 @@ const router = express.Router();
 router.post(
   "/qr",
   asyncHandler(async (req, res) => {
-    const { orderId, amount } = req.body || {};
+    const { orderId, amount, description, transferContent, content } =
+      req.body || {};
     if (!orderId) {
       const err = new Error("orderId is required");
       err.status = 400;
       err.code = "INVALID_REQUEST";
       throw err;
     }
-    const payment = await paymentService.createQr({ orderId, amount });
+    const payment = await paymentService.createQr({
+      orderId,
+      amount,
+      description: description ?? transferContent ?? content,
+    });
     const order = await require("../services/orderService").getOrder(orderId);
     res.status(201).json(paymentService.toPublicPayment(payment, order));
   })

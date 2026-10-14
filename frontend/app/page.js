@@ -11,6 +11,7 @@ export default function HomePage() {
   const [hasActive, setHasActive] = useState(false);
   const [orders, setOrders] = useState([]);
   const [amount, setAmount] = useState(2000);
+  const [description, setDescription] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -49,8 +50,17 @@ export default function HomePage() {
     setBusy(true);
     setError("");
     try {
-      const order = await api.createOrder(Number(amount));
-      await api.createQr(order.id, order.amount);
+      const content = description.trim();
+      if (content.length > 9) {
+        throw Object.assign(new Error("Nội dung CK tối đa 9 ký tự"), {
+          code: "INVALID_DESCRIPTION",
+        });
+      }
+      const order = await api.createOrder(
+        Number(amount),
+        content || undefined
+      );
+      await api.createQr(order.id, order.amount, content || undefined);
       router.push(`/orders/${order.id}/pay`);
     } catch (err) {
       if (err.code === "CAS_REAUTH_REQUIRED" || err.status === 401) {
@@ -125,6 +135,22 @@ export default function HomePage() {
                   required
                 />
               </label>
+              <label>
+                Nội dung CK (tùy chọn, tối đa 9)
+                <input
+                  type="text"
+                  maxLength={9}
+                  placeholder="VD: DH-01234"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <p className="muted">
+                Để trống = dùng mã đơn tự sinh (<code>DH-#####</code>). Cas giới
+                hạn 9 ký tự, không khoảng trắng.
+              </p>
               <button className="btn" disabled={busy} type="submit">
                 {busy ? "Đang tạo QR…" : "Tạo QR thanh toán"}
               </button>
