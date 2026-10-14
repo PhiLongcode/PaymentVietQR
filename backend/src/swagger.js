@@ -91,7 +91,7 @@ const spec = {
       },
       post: {
         tags: ["Orders"],
-        summary: "Tạo đơn — mã DH0000001 (9 ký tự = nội dung CK)",
+        summary: "Tạo đơn — mã DH-01234 (8 ký tự = nội dung CK, Cas max 9)",
         requestBody: {
           required: true,
           content: {
@@ -116,7 +116,7 @@ const spec = {
             name: "orderId",
             in: "path",
             required: true,
-            schema: { type: "string", example: "DH0000001" },
+            schema: { type: "string", example: "DH-01234" },
           },
         ],
         responses: { 200: { description: "qrCode, status, account" } },
@@ -164,7 +164,7 @@ const spec = {
                 type: "object",
                 required: ["orderId"],
                 properties: {
-                  orderId: { type: "string", example: "DH0000001" },
+                  orderId: { type: "string", example: "DH-01234" },
                   amount: { type: "integer", example: 2000 },
                 },
               },
@@ -203,7 +203,7 @@ const spec = {
                   id: "txn-1",
                   accountNumber: "VQRQAMOKR7314",
                   amount: 2000,
-                  description: "DH0000001",
+                  description: "DH-01234",
                   reference: "FT123",
                   paymentMeta: {},
                 },
@@ -233,7 +233,7 @@ const spec = {
                 properties: {
                   transactionId: { type: "string" },
                   amount: { type: "integer", example: 2000 },
-                  description: { type: "string", example: "DH0000001" },
+                  description: { type: "string", example: "DH-01234" },
                   accountNumber: { type: "string" },
                 },
               },

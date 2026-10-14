@@ -92,6 +92,14 @@ function hook(overrides) {
     description: `Qamomf3244  CASSO12397 4 xxx 150359607111-${wrappedOrder.id}-CHUYEN TIEN-MOMO`,
   });
 
+  const codes = matchingService.extractOrderCodes(
+    `prefix-${wrappedOrder.id}-suffix`,
+    "legacy DH0000001 text"
+  );
+  if (!codes.includes(wrappedOrder.id) || !codes.includes("DH0000001")) {
+    throw new Error(`extractOrderCodes failed: ${JSON.stringify(codes)}`);
+  }
+
   const unknown = await hook({
     txnId: `SMOKE-UNK-${Date.now()}`,
     amount: 2000,

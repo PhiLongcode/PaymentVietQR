@@ -151,23 +151,24 @@ CREATE UNIQUE INDEX UX_cas_grants_grant_id ON dbo.cas_grants(grant_id);
 CREATE INDEX IX_cas_grants_status ON dbo.cas_grants(status);
 
 CREATE TABLE dbo.orders (
-  id                CHAR(9)       NOT NULL PRIMARY KEY, -- DH0000001
+  id                CHAR(8)       NOT NULL PRIMARY KEY, -- DH-01234
   amount            BIGINT        NOT NULL,
   currency          CHAR(3)       NOT NULL CONSTRAINT DF_orders_ccy DEFAULT ('VND'),
   status            NVARCHAR(32)  NOT NULL,
   created_at        DATETIMEOFFSET NOT NULL,
   updated_at        DATETIMEOFFSET NOT NULL,
-  CONSTRAINT CK_orders_amount CHECK (amount > 0)
+  CONSTRAINT CK_orders_amount CHECK (amount > 0),
+  CONSTRAINT CK_orders_id CHECK (id LIKE 'DH-[0-9][0-9][0-9][0-9][0-9]')
 );
 CREATE INDEX IX_orders_status ON dbo.orders(status);
 
 CREATE TABLE dbo.order_seq (
-  last_n INT NOT NULL -- một dòng, sinh mã DH
+  last_n INT NOT NULL -- một dòng, sinh mã DH-#####
 );
 
 CREATE TABLE dbo.payments (
   id                      NVARCHAR(32)  NOT NULL PRIMARY KEY, -- PAY-...
-  order_id                CHAR(9)       NOT NULL,
+  order_id                CHAR(8)       NOT NULL,
   provider                NVARCHAR(16)  NOT NULL CONSTRAINT DF_pay_prov DEFAULT ('CAS'),
   provider_payment_id     NVARCHAR(64)  NULL, -- qrPay.id
   amount                  BIGINT        NOT NULL,
@@ -221,7 +222,7 @@ CREATE TABLE dbo.unmatched_transactions (
 CREATE TABLE dbo.audit_logs (
   id                      BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
   payment_id              NVARCHAR(32)  NULL,
-  order_id                CHAR(9)       NULL,
+  order_id                CHAR(8)       NULL,
   provider                NVARCHAR(16)  NOT NULL CONSTRAINT DF_aud_prov DEFAULT ('CAS'),
   provider_payment_id     NVARCHAR(64)  NULL,
   transaction_id          NVARCHAR(64)  NULL,
@@ -236,13 +237,14 @@ CREATE INDEX IX_audit_order ON dbo.audit_logs(order_id);
 
 Toàn bộ bước **match + cập nhật PAID + ghi webhook + audit** trong **một `BEGIN TRAN`** (isolation `READ COMMITTED SNAPSHOT` khuyến nghị). Unique `transaction_id` chặn cộng tiền lần 2.
 
-### 5.2. Sinh mã đơn `DHxxxxxxx` (đúng 9 ký tự)
+### 5.2. Sinh mã đơn `DH-#####` (8 ký tự)
 
 Cas `description` tối đa 9 ký tự → mã đơn **chính là nội dung CK**.
 
-- Prefix `DH` + 7 chữ số: `DH0000001` … `DH9999999`
+- Prefix `DH-` + 5 chữ số: `DH-00001` … `DH-99999` (ví dụ `DH-01234`)
 - Tăng `order_seq.last_n` với `UPDLOCK, ROWLOCK` trong transaction tạo order
 - `referenceNumber` và `description` gửi Cas = `orders.id`
+- Matching webhook: regex `\bDH-\d{5}\b` (và legacy `\bDH\d{7}\b` nếu còn data cũ)
 
 Không dùng UUID / `ORDER-001` (dài hơn 9 ký tự).
 

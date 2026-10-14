@@ -1,26 +1,27 @@
 const { nowIso } = require("../db");
 const { Order, plain } = require("../db/models");
 
-const ORDER_CODE_LEN = 9;
-const ORDER_CODE_PREFIX = "DH";
+/** Cas description max 9 chars. Format: DH-01234 (8). */
+const ORDER_CODE_LEN = 8;
+const ORDER_CODE_PREFIX = "DH-";
+const ORDER_CODE_DIGITS = 5;
+const ORDER_CODE_RE = /^DH-\d{5}$/;
 
 async function generateOrderCode() {
-  const prefix = ORDER_CODE_PREFIX;
-  const seqWidth = ORDER_CODE_LEN - prefix.length;
-  const row = await Order.findOne({ id: { $regex: /^DH\d{7}$/ } })
+  const row = await Order.findOne({ id: { $regex: /^DH-\d{5}$/ } })
     .sort({ id: -1 })
     .lean();
-  const last = row?.id ? Number(row.id.slice(prefix.length)) : 0;
+  const last = row?.id ? Number(row.id.slice(ORDER_CODE_PREFIX.length)) : 0;
   const next = Number.isFinite(last) ? last + 1 : 1;
-  if (next > 10 ** seqWidth - 1) {
+  if (next > 10 ** ORDER_CODE_DIGITS - 1) {
     const err = new Error("Order code sequence exhausted");
     err.status = 500;
     err.code = "ORDER_CODE_EXHAUSTED";
     throw err;
   }
-  const code = `${prefix}${String(next).padStart(seqWidth, "0")}`;
-  if (code.length !== ORDER_CODE_LEN) {
-    const err = new Error("Generated order code must be 9 characters");
+  const code = `${ORDER_CODE_PREFIX}${String(next).padStart(ORDER_CODE_DIGITS, "0")}`;
+  if (code.length !== ORDER_CODE_LEN || !ORDER_CODE_RE.test(code)) {
+    const err = new Error("Generated order code must match DH-01234");
     err.status = 500;
     err.code = "INVALID_ORDER_CODE";
     throw err;
@@ -67,6 +68,8 @@ async function listOrders() {
 module.exports = {
   generateOrderCode,
   ORDER_CODE_LEN,
+  ORDER_CODE_PREFIX,
+  ORDER_CODE_RE,
   createOrder,
   getOrder,
   setOrderStatus,
